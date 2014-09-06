@@ -6,16 +6,109 @@ import smtplib
 import time
 import gzip
 import json
+import sqlite3
+import gtfs_realtime_pb2
+import requests
+import time
+import re
+from datetime import datetime, timedelta
+from gtfs_map import Prediction, Location
+import calendar
+
+from predictions import make_timestamp
 
 ALERTS = "http://developer.mbta.com/lib/GTRTFS/Alerts/Alerts.pb"
 TRIP_UPDATES = "http://developer.mbta.com/lib/GTRTFS/Alerts/TripUpdates.pb"
 VEHICLE_POSITIONS = "http://developer.mbta.com/lib/GTRTFS/Alerts/VehiclePositions.pb"
 
+from gtfs_map import GtfsMap
+from predictions import PredictionsStore
+from datetime import datetime
+
+def parse_gtfs_time(s, date):
+    groups = re.match("(\d+):(\d+):(\d+)", s).groups()
+    if int(groups[0]) >= 24:
+        s = "%d:%d:%d" % (int(groups[0]) - 24, int(groups[1]), int(groups[2]))
+        date += timedelta(1)
+    diff = date - datetime.combine(date, datetime.strptime(s, "%H:%M:%S").time())
+    return int(diff.seconds / 60)
 
 def run_downloader():
-    while True:
-        
+    if not os.path.isfile("./temp_gtfs.db"):
+        print("Initializing gtfs map...")
+        reinitialize = True
+    else:
+        reinitialize = False
 
+    print("Initializing GtfsMap...")
+    gtfs_map = GtfsMap("/home/schneg/Projects/bostonbusmap/tools/gtfs/mbta", reinitialize)
+
+    predictions = PredictionsStore()
+    while True:
+        print ("Reading trip updates...")
+        data = requests.get(TRIP_UPDATES).content
+        message = gtfs_realtime_pb2.FeedMessage()
+        message.ParseFromString(data)
+
+        current_date = datetime.now()
+
+        print("Creating trip lookup from GTFS...")
+        trips_lookup = {}
+        trips = []
+        for trip in gtfs_map.find_trips_for_datetime(current_date):
+            estimated_minutes = parse_gtfs_time(trip['departure_time'], current_date)
+            key = (str(trip['trip_id']), str(trip['stop_id']))
+            trips.append(key)
+            prediction = Prediction(stop_id=trip['stop_id'], trip_id=trip['trip_id'], estimated_minutes=estimated_minutes)
+            trips_lookup[key] = prediction
+
+        print("Modifying using trip updates...")
+        for entity in message.entity:
+            if entity.trip_update:
+                trip_id = entity.trip_update.trip.trip_id
+                for stop_time_update in entity.trip_update.stop_time_update:
+                    stop_id = stop_time_update.stop_id
+                    key = (str(trip_id), str(stop_id))
+                    if key not in trips_lookup:
+                        if stop_time_update.departure and stop_time_update.departure.time:
+                            trips.append(key)
+                            current_timestamp = make_timestamp(current_date)
+                            estimated_minutes = int((stop_time_update.departure.time - current_timestamp) / 60)
+                            trips_lookup[key] = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
+                        else:
+                            print ("Unable to find stop %s trip %s, continuing..." % (stop_id, trip_id))
+                            print(stop_time_update)
+                    else:
+                        prediction = trips_lookup[key]
+
+                        if stop_time_update.departure:
+                            if stop_time_update.departure.delay is not None:
+                                trips_lookup[key] = Prediction(stop_id=prediction.stop_id, trip_id=prediction.trip_id, estimated_minutes=prediction.estimated_minutes + stop_time_update.departure.delay)
+
+        print("Writing predictions to database...")
+        for key in trips:
+            prediction = trips_lookup[key]
+
+            if prediction.estimated_minutes >= 0 and prediction.estimated_minutes < 30:
+                predictions.add_prediction(prediction, current_date)
+
+        print("Getting vehicle positions...")
+        data = requests.get(VEHICLE_POSITIONS).content
+        message = gtfs_realtime_pb2.FeedMessage()
+        message.ParseFromString(data)
+
+        print("Writing vehicle positions to database...")
+        for entity in message.entity:
+            if entity.vehicle:
+                lat = entity.vehicle.position.latitude
+                lon = entity.vehicle.position.longitude
+                trip_id = entity.vehicle.trip.trip_id
+                stop_id = entity.vehicle.stop_id
+
+                predictions.add_location(Location(trip_id=trip_id, lat=lat, lon=lon, stop_id=stop_id), current_date)
+                
+        predictions.commit()
+        print ("Done, sleeping for a minute...")
         time.sleep(60)
 
 def send_email(msg):
@@ -36,12 +129,8 @@ def main():
     parser = argparse.ArgumentParser()
     args = parser.parse_args()
 
-    try:
-        run_downloader()
+    run_downloader()
         
-    except Exception as e:
-        send_email(str(e))
-        print("Successfully send error email.")
 
 if __name__ == "__main__":
     main()
