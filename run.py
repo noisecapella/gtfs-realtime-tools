@@ -33,7 +33,7 @@ def parse_gtfs_time(s, date):
     diff = date - datetime.combine(date, datetime.strptime(s, "%H:%M:%S").time())
     return int(diff.seconds / 60)
 
-def run_downloader():
+def run_downloader(gtfs_path):
     if not os.path.isfile("./temp_gtfs.db"):
         print("Initializing gtfs map...")
         reinitialize = True
@@ -41,7 +41,7 @@ def run_downloader():
         reinitialize = False
 
     print("Initializing GtfsMap...")
-    gtfs_map = GtfsMap("/home/schneg/Projects/bostonbusmap/tools/gtfs/mbta", reinitialize)
+    gtfs_map = GtfsMap(gtfs_path, reinitialize)
 
     predictions = PredictionsStore()
     while True:
@@ -127,9 +127,13 @@ def send_email(msg):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("gtfs_path")
     args = parser.parse_args()
 
-    run_downloader()
+    if not os.path.isdir(args.gtfs_path):
+        raise Exception("gtfs_path is not a directory")
+
+    run_downloader(args.gtfs_path)
         
 
 if __name__ == "__main__":
