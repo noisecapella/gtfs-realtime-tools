@@ -155,8 +155,8 @@ class GtfsMap(object):
     def find_trips_by_route(self, route):
         return self._query("SELECT trips.* FROM trips WHERE route_id = ?", (route,))
 
-    def find_stop_times_for_stop_trip(self, stop_id, trip_id):
-        return self._query("SELECT s_t.* FROM stop_times s_t WHERE s_t.trip_id = ? AND s_t.stop_id = ?", (trip_id, stop_id))
+    def find_stop_times_for_stop_trip(self, stop_id, trip_id, stop_sequence):
+        return self._query("SELECT s_t.* FROM stop_times s_t WHERE s_t.trip_id = ? AND s_t.stop_id = ? AND s_t.stop_sequence = ?", (trip_id, stop_id, stop_sequence))
 
     def _stop_time_clause(self, date, after_hours):
         if after_hours:
