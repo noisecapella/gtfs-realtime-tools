@@ -96,7 +96,7 @@ class GtfsMap(object):
             self._import_table(gtfs_path, "stop_times")
             self._create_index("stop_times", "stop_id")
             self._create_index("stop_times", "trip_id")
-            self._create_index("stop_times", "departure_time")
+            self._create_index("stop_times", "arrival_time")
         self._import_table(gtfs_path, "shapes")
         self._create_index("shapes", "shape_id")
         self._import_table(gtfs_path, "calendar")
