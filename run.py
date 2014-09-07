@@ -81,7 +81,6 @@ def run_downloader(gtfs_path):
                             raise Exception("More than one trip found for stop %s trip %s" % (stop_id, trip_id))
                         stop_times = stop_times[0]
                         arrival_date = parse_gtfs_time(stop_times['arrival_time'], message_date) + timedelta(0, stop_time_update.arrival.delay)
-                        print(arrival_date)
 
                         estimated_minutes = int((arrival_date - message_date).seconds / 60)
                         prediction = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
