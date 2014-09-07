@@ -91,7 +91,7 @@ def run_downloader(gtfs_path):
                     used_trips.add((str(stop_id), str(trip_id)))
 
         print("Filtering against GTFS...")
-        for stop_times in gtfs_map.find_stop_times_for_date(current_date):
+        for stop_times in gtfs_map.find_stop_times_for_datetime(current_date):
             key = (str(stop_id), str(trip_id))
             if key not in used_trips:
                 arrival_time = parse_gtfs_time(stop_times['arrival_time'], current_date)
@@ -112,8 +112,14 @@ def run_downloader(gtfs_path):
                 predictions.add_location(Location(trip_id=trip_id, lat=lat, lon=lon, stop_id=stop_id), current_date)
                 
         predictions.commit()
-        print ("Done, sleeping for a minute...")
-        time.sleep(60)
+
+        now = datetime.now()
+        print ("That took %s") % (now - current_date)
+        if (now - current_date).seconds > 60:
+            print("Not sleeping, execution longer than a minute")
+        else:
+            print ("Done, sleeping for the rest of the minute...")
+        time.sleep(60 - (now - current_date).seconds)
 
 def send_email(msg):
     smtpObj = smtplib.SMTP('smtp.gmail.com:587')
