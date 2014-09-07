@@ -30,8 +30,7 @@ def parse_gtfs_time(s, date):
     if int(groups[0]) >= 24:
         s = "%d:%d:%d" % (int(groups[0]) - 24, int(groups[1]), int(groups[2]))
         date += timedelta(1)
-    diff = date - datetime.combine(date, datetime.strptime(s, "%H:%M:%S").time())
-    return int(diff.seconds / 60)
+    return datetime.combine(date, datetime.strptime(s, "%H:%M:%S").time())
 
 def run_downloader(gtfs_path):
     if not os.path.isfile("./temp_gtfs.db"):
@@ -45,12 +44,14 @@ def run_downloader(gtfs_path):
 
     predictions = PredictionsStore()
     while True:
+        starting_date = datetime.now()
+        
         print ("Reading trip updates...")
         data = requests.get(TRIP_UPDATES).content
         trip_message = gtfs_realtime_pb2.FeedMessage()
         trip_message.ParseFromString(data)
-
-        current_date = datetime.now()
+        
+        message_date = datetime.utcfromtimestamp(trip_message.header.timestamp)
 
         print("Getting vehicle positions...")
         data = requests.get(VEHICLE_POSITIONS).content
@@ -59,47 +60,47 @@ def run_downloader(gtfs_path):
 
         print("Going through trip updates...")
         used_trips = set()
-        current_timestamp = make_timestamp(current_date)
         for entity in trip_message.entity:
             if entity.trip_update:
                 trip_id = entity.trip_update.trip.trip_id
                 for stop_time_update in entity.trip_update.stop_time_update:
                     stop_id = stop_time_update.stop_id
 
-                    if stop_time_update.arrival and stop_time_update.arrival.time is not None:
-                        estimated_minutes = int((stop_time_update.arrival.time - current_timestamp) / 60)
+                    if stop_time_update.HasField("arrival") and stop_time_update.arrival.HasField("time"):
+                        estimated_minutes = int((datetime.utcfromtimestamp(stop_time_update.arrival.time) - message_date).seconds / 60)
                         
                         prediction = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
-                        if estimated_minutes >= 0 and prediction.estimated_minutes < 30:
-                            predictions.add_prediction(prediction, current_date)
-                    elif stop_time_update.arrival and stop_time_update.arrival.delay is not None:
+
+                        if estimated_minutes >= -5 and estimated_minutes < 30:
+                            predictions.add_prediction(prediction, message_date)
+                    elif stop_time_update.HasField("arrival") and stop_time_update.arrival.HasField("delay"):
                         stop_times = list(gtfs_map.find_stop_times_for_stop_trip(stop_id, trip_id))
                         if len(stop_times) == 0:
                             raise Exception("Unable to find delay for stop %s trip %s" % (stop_id, trip_id))
                         elif len(stop_times) > 1:
                             raise Exception("More than one trip found for stop %s trip %s" % (stop_id, trip_id))
-                        arrival_time = parse_gtfs_time(stop_times['arrival_time'], current_date) + stop_time_update.arrival.delay
+                        stop_times = stop_times[0]
+                        arrival_date = parse_gtfs_time(stop_times['arrival_time'], message_date) + timedelta(0, stop_time_update.arrival.delay)
+                        print(arrival_date)
 
-                        estimated_minutes = int((arrival_time - current_timestamp) / 60)
+                        estimated_minutes = int((arrival_date - message_date).seconds / 60)
                         prediction = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
-                        if estimated_minutes >= 0 and prediction.estimated_minutes < 30:
-                            predictions.add_prediction(prediction, current_date)
-                        
-                    else:
-                        print("Unknown stop_id %s trip_id %s entity %s" % (stop_id, trip_id, entity))
+                        if estimated_minutes >= -5 and estimated_minutes < 30:
+                            predictions.add_prediction(prediction, message_date)
+
 
                     used_trips.add((str(stop_id), str(trip_id)))
 
         print("Filtering against GTFS...")
-        for stop_times in gtfs_map.find_stop_times_for_datetime(current_date):
+        for stop_times in gtfs_map.find_stop_times_for_datetime(message_date):
             key = (str(stop_id), str(trip_id))
             if key not in used_trips:
-                arrival_time = parse_gtfs_time(stop_times['arrival_time'], current_date)
+                arrival_date = parse_gtfs_time(stop_times['arrival_time'], message_date)
 
-                estimated_minutes = int((arrival_time - current_timestamp) / 60)
+                estimated_minutes = int((arrival_date - message_date).seconds / 60)
                 prediction = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
-                if estimated_minutes >= 0 and prediction.estimated_minutes < 30:
-                    predictions.add_prediction(prediction, current_date)
+                if estimated_minutes >= -5 and estimated_minutes < 30:
+                    predictions.add_prediction(prediction, message_date)
                         
         print("Writing vehicle positions to database...")
         for entity in vehicle_message.entity:
@@ -109,17 +110,19 @@ def run_downloader(gtfs_path):
                 trip_id = entity.vehicle.trip.trip_id
                 stop_id = entity.vehicle.stop_id
 
-                predictions.add_location(Location(trip_id=trip_id, lat=lat, lon=lon, stop_id=stop_id), current_date)
+                vehicle_message_date = datetime.utcfromtimestamp(vehicle_message.header.timestamp)
+                predictions.add_location(Location(trip_id=trip_id, lat=lat, lon=lon, stop_id=stop_id), vehicle_message_date)
                 
         predictions.commit()
 
         now = datetime.now()
-        print ("That took %s") % (now - current_date)
-        if (now - current_date).seconds > 60:
+        diff = now - starting_date
+        print ("That took %s") % diff
+        if diff.seconds > 60:
             print("Not sleeping, execution longer than a minute")
         else:
             print ("Done, sleeping for the rest of the minute...")
-        time.sleep(60 - (now - current_date).seconds)
+        time.sleep(60 - diff.seconds)
 
 def send_email(msg):
     smtpObj = smtplib.SMTP('smtp.gmail.com:587')
