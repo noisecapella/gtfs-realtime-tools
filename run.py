@@ -53,6 +53,7 @@ def run_downloader(gtfs_path):
         current_date = datetime.now()
 
         print("Going through trip updates...")
+        used_trips = set()
         current_timestamp = make_timestamp(current_date)
         for entity in message.entity:
             if entity.trip_update:
@@ -60,20 +61,21 @@ def run_downloader(gtfs_path):
                 for stop_time_update in entity.trip_update.stop_time_update:
                     stop_id = stop_time_update.stop_id
 
-                    if stop_time_update.departure and stop_time_update.departure.time is not None:
-                        estimated_minutes = int((stop_time_update.departure.time - current_timestamp) / 60)
+                    if stop_time_update.arrival and stop_time_update.arrival.time is not None:
+                        estimated_minutes = int((stop_time_update.arrival.time - current_timestamp) / 60)
                         
                         prediction = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
                         if estimated_minutes >= 0 and prediction.estimated_minutes < 30:
                             predictions.add_prediction(prediction, current_date)
-                    elif stop_time_update.departure and stop_time_update.departure.delay is not None:
-                        trip = list(gtfs_map.find_stop_times_for_stop_trip(stop_id, trip_id))
-                        if len(trip) == 0:
+                    elif stop_time_update.arrival and stop_time_update.arrival.delay is not None:
+                        stop_times = list(gtfs_map.find_stop_times_for_stop_trip(stop_id, trip_id))
+                        if len(stop_times) == 0:
                             raise Exception("Unable to find delay for stop %s trip %s" % (stop_id, trip_id))
-                        elif len(trip) > 1:
+                        elif len(stop_times) > 1:
                             raise Exception("More than one trip found for stop %s trip %s" % (stop_id, trip_id))
-                        departure_time = parse_gtfs_time(trip['departure_time'], current_date)
-                        estimated_minutes = int((departure_time - current_timestamp) / 60)
+                        arrival_time = parse_gtfs_time(stop_times['arrival_time'], current_date) + stop_time_update.arrival.delay
+
+                        estimated_minutes = int((arrival_time - current_timestamp) / 60)
                         prediction = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
                         if estimated_minutes >= 0 and prediction.estimated_minutes < 30:
                             predictions.add_prediction(prediction, current_date)
@@ -81,6 +83,19 @@ def run_downloader(gtfs_path):
                     else:
                         print("Unknown stop_id %s trip_id %s entity %s" % (stop_id, trip_id, entity))
 
+                    used_trips.add((str(stop_id), str(trip_id)))
+
+        print("Filtering against GTFS...")
+        for stop_times in gtfs_map.find_stop_times_for_date(current_date):
+            key = (str(stop_id), str(trip_id))
+            if key not in used_trips:
+                arrival_time = parse_gtfs_time(stop_times['arrival_time'], current_date)
+
+                estimated_minutes = int((arrival_time - current_timestamp) / 60)
+                prediction = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
+                if estimated_minutes >= 0 and prediction.estimated_minutes < 30:
+                    predictions.add_prediction(prediction, current_date)
+                        
         print("Getting vehicle positions...")
         data = requests.get(VEHICLE_POSITIONS).content
         message = gtfs_realtime_pb2.FeedMessage()
