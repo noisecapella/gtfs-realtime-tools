@@ -147,7 +147,7 @@ def run_downloader(gtfs_path):
             print("Not sleeping, execution longer than a minute")
         else:
             print ("Done, sleeping for the rest of the minute...")
-        time.sleep(60 - diff.seconds)
+            time.sleep(60 - diff.seconds)
 
 def send_email(msg):
     smtpObj = smtplib.SMTP('smtp.gmail.com:587')
