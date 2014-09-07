@@ -180,7 +180,7 @@ class GtfsMap(object):
         # TODO: appropriate time zone handling for times, handling of times past midnight
         # TODO: calendar_dates
         date_string = date.strftime("%Y%m%d")
-        query += " AND start_date <= ? AND end_date >= ? ASC"
+        query += " AND start_date <= ? AND end_date >= ? "
 
         return self._query(query, (date_string, date_string))
 
