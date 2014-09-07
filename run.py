@@ -74,7 +74,9 @@ def run_downloader(gtfs_path):
                         if estimated_minutes >= -5 and estimated_minutes < 30:
                             predictions.add_prediction(prediction, message_date)
                     elif stop_time_update.HasField("arrival") and stop_time_update.arrival.HasField("delay"):
+                        print("before")
                         stop_times = list(gtfs_map.find_stop_times_for_stop_trip(stop_id, trip_id))
+                        print("after")
                         if len(stop_times) == 0:
                             raise Exception("Unable to find delay for stop %s trip %s" % (stop_id, trip_id))
                         elif len(stop_times) > 1:
