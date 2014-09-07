@@ -52,45 +52,34 @@ def run_downloader(gtfs_path):
 
         current_date = datetime.now()
 
-        print("Creating trip lookup from GTFS...")
-        trips_lookup = {}
-        trips = []
-        for trip in gtfs_map.find_trips_for_datetime(current_date):
-            estimated_minutes = parse_gtfs_time(trip['departure_time'], current_date)
-            key = (str(trip['trip_id']), str(trip['stop_id']))
-            trips.append(key)
-            prediction = Prediction(stop_id=trip['stop_id'], trip_id=trip['trip_id'], estimated_minutes=estimated_minutes)
-            trips_lookup[key] = prediction
-
-        print("Modifying using trip updates...")
+        print("Going through trip updates...")
+        current_timestamp = make_timestamp(current_date)
         for entity in message.entity:
             if entity.trip_update:
                 trip_id = entity.trip_update.trip.trip_id
                 for stop_time_update in entity.trip_update.stop_time_update:
                     stop_id = stop_time_update.stop_id
-                    key = (str(trip_id), str(stop_id))
-                    if key not in trips_lookup:
-                        if stop_time_update.departure and stop_time_update.departure.time:
-                            trips.append(key)
-                            current_timestamp = make_timestamp(current_date)
-                            estimated_minutes = int((stop_time_update.departure.time - current_timestamp) / 60)
-                            trips_lookup[key] = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
-                        else:
-                            print ("Unable to find stop %s trip %s, continuing..." % (stop_id, trip_id))
-                            print(stop_time_update)
+
+                    if stop_time_update.departure and stop_time_update.departure.time is not None:
+                        estimated_minutes = int((stop_time_update.departure.time - current_timestamp) / 60)
+                        
+                        prediction = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
+                        if estimated_minutes >= 0 and prediction.estimated_minutes < 30:
+                            predictions.add_prediction(prediction, current_date)
+                    elif stop_time_update.departure and stop_time_update.departure.delay is not None:
+                        trip = list(gtfs_map.find_stop_times_for_stop_trip(stop_id, trip_id))
+                        if len(trip) == 0:
+                            raise Exception("Unable to find delay for stop %s trip %s" % (stop_id, trip_id))
+                        elif len(trip) > 1:
+                            raise Exception("More than one trip found for stop %s trip %s" % (stop_id, trip_id))
+                        departure_time = parse_gtfs_time(trip['departure_time'], current_date)
+                        estimated_minutes = int((departure_time - current_timestamp) / 60)
+                        prediction = Prediction(stop_id=stop_id, trip_id=trip_id, estimated_minutes=estimated_minutes)
+                        if estimated_minutes >= 0 and prediction.estimated_minutes < 30:
+                            predictions.add_prediction(prediction, current_date)
+                        
                     else:
-                        prediction = trips_lookup[key]
-
-                        if stop_time_update.departure:
-                            if stop_time_update.departure.delay is not None:
-                                trips_lookup[key] = Prediction(stop_id=prediction.stop_id, trip_id=prediction.trip_id, estimated_minutes=prediction.estimated_minutes + stop_time_update.departure.delay)
-
-        print("Writing predictions to database...")
-        for key in trips:
-            prediction = trips_lookup[key]
-
-            if prediction.estimated_minutes >= 0 and prediction.estimated_minutes < 30:
-                predictions.add_prediction(prediction, current_date)
+                        print("Unknown stop_id %s trip_id %s entity %s" % (stop_id, trip_id, entity))
 
         print("Getting vehicle positions...")
         data = requests.get(VEHICLE_POSITIONS).content

@@ -155,6 +155,9 @@ class GtfsMap(object):
     def find_trips_by_route(self, route):
         return self._query("SELECT trips.* FROM trips WHERE route_id = ?", (route,))
 
+    def find_stop_times_for_stop_trip(self, stop_id, trip_id):
+        return self._query("SELECT s_t.*, route_id FROM stop_times AS s_t JOIN trips AS t ON s_t.trip_id = t.trip_id WHERE t.trip_id = ? AND s_t.stop_id = ?", (trip_id, stop_id))
+
     def find_trips_for_datetime(self, date):
         day_of_week = date.weekday()
         query = "SELECT s_t.*, route_id FROM calendar AS c JOIN trips AS t ON c.service_id = t.service_id JOIN stop_times AS s_t ON s_t.trip_id = t.trip_id "
