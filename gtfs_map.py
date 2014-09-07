@@ -158,31 +158,71 @@ class GtfsMap(object):
     def find_stop_times_for_stop_trip(self, stop_id, trip_id):
         return self._query("SELECT s_t.*, route_id FROM stop_times AS s_t JOIN trips AS t ON s_t.trip_id = t.trip_id WHERE t.trip_id = ? AND s_t.stop_id = ?", (trip_id, stop_id))
 
-    def find_stop_times_for_date(self, date):
+    def _stop_time_clause(self, date, after_hours):
+        if after_hours:
+            date = date + timedelta(-1)
+
+        query = ''
         day_of_week = date.weekday()
-        query = "SELECT s_t.*, route_id FROM calendar AS c JOIN trips AS t ON c.service_id = t.service_id JOIN stop_times AS s_t ON s_t.trip_id = t.trip_id "
         if day_of_week == 0:
-            query += "WHERE monday = 1"
+            query += " monday = 1"
         elif day_of_week == 1:
-            query += "WHERE tuesday = 1"
+            query += " tuesday = 1"
         elif day_of_week == 2:
-            query += "WHERE wednesday = 1"
+            query += " wednesday = 1"
         elif day_of_week == 3:
-            query += "WHERE thursday = 1"
+            query += " thursday = 1"
         elif day_of_week == 4:
-            query += "WHERE friday = 1"
+            query += " friday = 1"
         elif day_of_week == 5:
-            query += "WHERE saturday = 1"
+            query += " saturday = 1"
         elif day_of_week == 6:
-            query += "WHERE sunday = 1"
+            query += " sunday = 1"
+        
+        query += " AND start_date <= ? AND end_date >= ? AND arrival_time >= ? AND arrival_time < ? "
 
-
-        # TODO: appropriate time zone handling for times, handling of times past midnight
-        # TODO: calendar_dates
         date_string = date.strftime("%Y%m%d")
-        query += " AND start_date <= ? AND end_date >= ? "
+        arrival_time_minus_30 = date + timedelta(0, -30*60)
+        arrival_time_plus_30 = date + timedelta(0, 30*60)
 
-        return self._query(query, (date_string, date_string))
+        def minutes_seconds(date):
+            return date.strftime("%M:%S")
+        def hours(date):
+            if after_hours:
+                hour = int(date.strftime("%H"))
+                hour += 24
+                return str(hour)
+            return date.strftime("%H")
+
+        def gtfs_time_from_date(date):
+            return "%s:%s" % (hours(date), minutes_seconds(date))
+
+        return (query, (date_string, date_string, gtfs_time_from_date(arrival_time_minus_30), gtfs_time_from_date(arrival_time_plus_30)))
+                        
+
+    def find_stop_times_for_datetime(self, date):
+        query = "SELECT s_t.*, route_id FROM calendar AS c JOIN trips AS t ON c.service_id = t.service_id JOIN stop_times AS s_t ON s_t.trip_id = t.trip_id "
+
+
+        # TODO: appropriate time zone handling for times
+        # TODO: calendar_dates
+
+        parameters = ()
+
+        query += " WHERE ("
+        sub_query, sub_params = self._stop_time_clause(date, False)
+        query += " (" + sub_query + ") " 
+        parameters += sub_params
+
+        query += " OR "
+
+        sub_query, sub_params = self._stop_time_clause(date, True)
+        query += " (" + sub_query + ") "
+        parameters += sub_params
+
+        query += " )"
+
+        return self._query(query, parameters)
 
  
     def __del__(self):

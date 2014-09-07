@@ -47,15 +47,20 @@ def run_downloader(gtfs_path):
     while True:
         print ("Reading trip updates...")
         data = requests.get(TRIP_UPDATES).content
-        message = gtfs_realtime_pb2.FeedMessage()
-        message.ParseFromString(data)
+        trip_message = gtfs_realtime_pb2.FeedMessage()
+        trip_message.ParseFromString(data)
 
         current_date = datetime.now()
+
+        print("Getting vehicle positions...")
+        data = requests.get(VEHICLE_POSITIONS).content
+        vehicle_message = gtfs_realtime_pb2.FeedMessage()
+        vehicle_message.ParseFromString(data)
 
         print("Going through trip updates...")
         used_trips = set()
         current_timestamp = make_timestamp(current_date)
-        for entity in message.entity:
+        for entity in trip_message.entity:
             if entity.trip_update:
                 trip_id = entity.trip_update.trip.trip_id
                 for stop_time_update in entity.trip_update.stop_time_update:
@@ -96,13 +101,8 @@ def run_downloader(gtfs_path):
                 if estimated_minutes >= 0 and prediction.estimated_minutes < 30:
                     predictions.add_prediction(prediction, current_date)
                         
-        print("Getting vehicle positions...")
-        data = requests.get(VEHICLE_POSITIONS).content
-        message = gtfs_realtime_pb2.FeedMessage()
-        message.ParseFromString(data)
-
         print("Writing vehicle positions to database...")
-        for entity in message.entity:
+        for entity in vehicle_message.entity:
             if entity.vehicle:
                 lat = entity.vehicle.position.latitude
                 lon = entity.vehicle.position.longitude
