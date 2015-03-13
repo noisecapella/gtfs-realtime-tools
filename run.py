@@ -128,26 +128,31 @@ def run_downloader(gtfs_path):
 
     predictions = PredictionsStore()
     while True:
-        starting_date = datetime.now()
+        try:
+            starting_date = datetime.now()
         
-        prediction_list, prediction_date, location_list, location_date = calculate(gtfs_map, True)
+            prediction_list, prediction_date, location_list, location_date = calculate(gtfs_map, True)
 
-        for prediction in prediction_list:
-            predictions.add_prediction(prediction, prediction_date)
+            for prediction in prediction_list:
+                predictions.add_prediction(prediction, prediction_date)
 
-        for location in location_list:
-            predictions.add_location(location, location_date)
+            for location in location_list:
+                predictions.add_location(location, location_date)
 
-        predictions.commit()
+            predictions.commit()
 
-        now = datetime.now()
-        diff = now - starting_date
-        print ("That took %s") % diff
-        if diff.seconds > 60:
-            print("Not sleeping, execution longer than a minute")
-        else:
-            print ("Done, sleeping for the rest of the minute...")
-            time.sleep(60 - diff.seconds)
+            now = datetime.now()
+            diff = now - starting_date
+            print ("That took %s") % diff
+            if diff.seconds > 60:
+                print("Not sleeping, execution longer than a minute")
+            else:
+                print ("Done, sleeping for the rest of the minute...")
+                time.sleep(60 - diff.seconds)
+
+        except Exception as e:
+            print(e)
+            time.sleep(60)
 
 def send_email(msg):
     smtpObj = smtplib.SMTP('smtp.gmail.com:587')
